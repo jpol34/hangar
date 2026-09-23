@@ -11,6 +11,9 @@ dependencies = [
     "httpx>=0.27",
 ]
 
+[project.scripts]
+hangar-run = "hangar.run:main"
+
 [project.optional-dependencies]
 dev = [
     "pytest>=8.3",

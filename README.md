@@ -36,6 +36,62 @@ pod_id = start_pod(
 `stop_pod`, `pod_status`, `pod_action`, `delete_pod`, `update_pod_env`, and `PodCapacityError`
 directly.
 
+## Idle shutdown
+
+hangar itself only provides the building blocks for detecting whether a pod is idle — deciding
+what to do about it (stopping the pod, a fixed max-runtime ceiling, etc.) is left to each
+project's own watchdog script.
+
+### Heartbeat file convention
+
+Activity is recorded by touching the mtime of a single shared file, `/tmp/hangar-heartbeat` by
+default (override with the `HANGAR_HEARTBEAT_FILE` env var). Two strategies write to it, and both
+can be used together:
+
+- **`hangar-run <command...>`** runs `<command>` as a subprocess, touching the heartbeat once
+  immediately and then every `HANGAR_HEARTBEAT_INTERVAL_S` seconds (default 30) for as long as the
+  subprocess is alive. It exits with the subprocess's own exit code. This requires zero code
+  changes in whatever it wraps — useful for anything that isn't an HTTP server.
+- **`hangar.HeartbeatMiddleware`** is a dependency-free ASGI middleware that touches the heartbeat
+  on real inbound HTTP requests:
+
+  ```python
+  from hangar import HeartbeatMiddleware
+
+  app = HeartbeatMiddleware(app, interval_s=30.0, exclude_paths=["/healthz"])
+  ```
+
+  It passes `lifespan` and `websocket` scopes through untouched, and rate-limits writes with a
+  cheap `stat()` freshness check rather than touching the file on every request.
+
+`touch_heartbeat()` is a single atomic `os.utime()` call, since the file is written concurrently
+by a background thread, an async event loop, and read concurrently by a separate watchdog process.
+
+### Idle detection
+
+`hangar.is_idle(threshold_s)` combines heartbeat freshness with SSH/tty activity via OR: a pod
+counts as idle only when the heartbeat is stale (or has never been written) *and* no pty session
+under `/dev/pts` has had activity within `threshold_s`.
+
+For a poll loop, use `hangar.IdleWatchdog`, instantiated once at process start:
+
+```python
+from hangar import IdleWatchdog
+
+watchdog = IdleWatchdog(threshold_s=20 * 60)
+
+while True:
+    if watchdog.poll():
+        ...  # stop the pod
+    time.sleep(30)
+```
+
+`IdleWatchdog`'s startup grace period reuses `threshold_s` rather than being a separate setting —
+a fresh pod that hasn't written a heartbeat or opened an SSH session yet reads as "no signal," and
+treating that as idle before the pod has had a chance to signal activity would shut it down
+immediately. The grace period gives it one full threshold window to start signaling before idle
+checks take effect.
+
 ## Development
 
 ```
