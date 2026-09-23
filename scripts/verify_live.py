@@ -11,7 +11,7 @@ import os
 import time
 from datetime import UTC, datetime
 
-from hangar import PodCapacityError, delete_pod, get_pod, init, pod_action, start_pod
+from hangar import PodCapacityError, delete_pod, init, pod_action, pod_status, start_pod
 from hangar.pod_spec import PodSpec
 
 
@@ -47,8 +47,7 @@ def main() -> None:
 
     try:
         for _ in range(30):
-            pod = get_pod(pod_id)
-            status = (pod or {}).get("desiredStatus")
+            status = pod_status(pod_id).get("desiredStatus")
             print(f"[{_ts()}] pod {pod_id} status: {status}")
             if status == "RUNNING":
                 break
@@ -60,7 +59,7 @@ def main() -> None:
         print(f"[{_ts()}] stopping pod {pod_id}...")
         pod_action(pod_id, "stop")
         time.sleep(10)
-        stopped_status = (get_pod(pod_id) or {}).get("desiredStatus")
+        stopped_status = pod_status(pod_id).get("desiredStatus")
         print(f"[{_ts()}] pod {pod_id} status after stop: {stopped_status}")
 
         print(f"[{_ts()}] resuming pod {pod_id} via start_pod (spec.pod_id set)...")
@@ -70,7 +69,7 @@ def main() -> None:
         time.sleep(10)
         print(
             f"[{_ts()}] pod {resumed_id} status after resume: "
-            f"{(get_pod(resumed_id) or {}).get('desiredStatus')}"
+            f"{pod_status(resumed_id).get('desiredStatus')}"
         )
     finally:
         print(f"[{_ts()}] cleaning up: terminating pod {pod_id}...")
