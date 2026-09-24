@@ -4,6 +4,7 @@ from hangar.middleware import HeartbeatMiddleware
 from hangar.pod_spec import PodSpec, start_pod
 from hangar.runpod_client import (
     PodCapacityError,
+    PodNotFoundError,
     create_pod,
     delete_pod,
     get_pod,
@@ -19,6 +20,7 @@ __all__ = [
     "HeartbeatMiddleware",
     "IdleWatchdog",
     "PodCapacityError",
+    "PodNotFoundError",
     "PodSpec",
     "create_pod",
     "delete_pod",

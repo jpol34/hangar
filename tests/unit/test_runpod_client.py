@@ -6,6 +6,7 @@ import pytest
 from hangar import runpod_client
 from hangar.runpod_client import (
     PodCapacityError,
+    PodNotFoundError,
     create_pod,
     delete_pod,
     get_pod,
@@ -69,6 +70,16 @@ def test_pod_action_raises_plain_error_on_other_400(monkeypatch):
 
     with pytest.raises(httpx.HTTPStatusError):
         pod_action("pod-123", "start")
+
+
+def test_pod_action_raises_pod_not_found_error_on_404(monkeypatch):
+    def handler(request: httpx.Request) -> httpx.Response:
+        return httpx.Response(404, text="Error: pod not found")
+
+    _fake_rest_client(monkeypatch, handler)
+
+    with pytest.raises(PodNotFoundError):
+        pod_action("pod-gone", "start")
 
 
 def test_create_pod_sends_expected_body_and_returns_response(monkeypatch):

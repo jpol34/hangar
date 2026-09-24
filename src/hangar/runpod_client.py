@@ -63,6 +63,11 @@ class PodCapacityError(RuntimeError):
     caller's only recourse is to terminate the pod and create a fresh one on a different host."""
 
 
+class PodNotFoundError(RuntimeError):
+    """Raised when a pod action targets a pod id RunPod no longer knows about (already deleted,
+    or never existed) — the caller's only recourse is to create a fresh pod."""
+
+
 def _rest_client() -> httpx.Client:
     return httpx.Client(
         base_url=_REST_V2_URL,
@@ -119,11 +124,14 @@ def update_pod_env(pod_id: str, env: dict[str, str]) -> dict:
 
 def pod_action(pod_id: str, action: str) -> dict:
     """action: 'start' | 'stop' | 'restart' | 'terminate'. Raises PodCapacityError on the
-    known "not enough free GPUs on the host machine" failure mode for a `start`."""
+    known "not enough free GPUs on the host machine" failure mode for a `start`, or
+    PodNotFoundError if RunPod no longer has a pod by this id."""
     with _rest_client() as client:
         resp = client.post(f"/pods/{pod_id}/action", json={"action": action})
         if resp.status_code == 400 and "not enough free gpus" in resp.text.lower():
             raise PodCapacityError(resp.text)
+        if resp.status_code == 404:
+            raise PodNotFoundError(resp.text)
         resp.raise_for_status()
         return resp.json()
 

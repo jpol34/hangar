@@ -87,6 +87,25 @@ def test_start_pod_falls_back_to_create_on_capacity_error(monkeypatch):
     assert "POST /v2/pods" in calls
 
 
+def test_start_pod_falls_back_to_create_when_pod_id_not_found(monkeypatch):
+    calls = []
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        calls.append(request.method + " " + request.url.path)
+        if request.url.path == "/v2/pods/pod-gone/action":
+            return httpx.Response(404, text="Error: pod not found")
+        return httpx.Response(200, json={"id": "pod-fresh"})
+
+    _fake_rest_client(monkeypatch, handler)
+
+    pod_id = start_pod(_spec(pod_id="pod-gone"))
+
+    assert pod_id == "pod-fresh"
+    assert "POST /v2/pods" in calls
+    # No DELETE call: a pod RunPod already has no record of needs no cleanup.
+    assert "DELETE /v2/pods/pod-gone" not in calls
+
+
 def test_pod_env_merges_device_and_extra_env(monkeypatch):
     captured = {}
 

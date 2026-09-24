@@ -8,6 +8,7 @@ from dataclasses import dataclass, field
 
 from hangar.runpod_client import (
     PodCapacityError,
+    PodNotFoundError,
     _require_api_key,
     create_pod,
     delete_pod,
@@ -19,7 +20,8 @@ from hangar.runpod_client import (
 @dataclass
 class PodSpec:
     """Describes the pod a caller wants running. `pod_id`, when set, is resumed instead of
-    creating a new pod; on a capacity failure the pod is terminated and recreated regardless.
+    creating a new pod; on a capacity failure, or if RunPod no longer knows about that pod id
+    (already deleted), a fresh pod is created instead.
 
     `device_env_key`/`device_env_value` sets a single project-specific device env var (e.g.
     `TRELLIS_DEVICE=cuda`). `extra_env` carries any other env vars the pod's entrypoint needs
@@ -78,6 +80,8 @@ def start_pod(spec: PodSpec) -> str:
             return spec.pod_id
         except PodCapacityError:
             delete_pod(spec.pod_id)
+            return _create_pod(spec, api_key)
+        except PodNotFoundError:
             return _create_pod(spec, api_key)
 
     return _create_pod(spec, api_key)
