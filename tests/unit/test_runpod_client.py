@@ -160,6 +160,16 @@ def test_update_pod_env_patches_and_returns_response(monkeypatch):
     assert update_pod_env("pod-123", {"A": "1"}) == {"id": "pod-123"}
 
 
+def test_update_pod_env_raises_pod_not_found_error_on_404(monkeypatch):
+    def handler(request: httpx.Request) -> httpx.Response:
+        return httpx.Response(404, text="Error: pod not found")
+
+    _fake_rest_client(monkeypatch, handler)
+
+    with pytest.raises(PodNotFoundError):
+        update_pod_env("pod-gone", {"A": "1"})
+
+
 def test_get_pod_returns_none_on_404(monkeypatch):
     def handler(request: httpx.Request) -> httpx.Response:
         return httpx.Response(404)

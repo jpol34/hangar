@@ -54,6 +54,18 @@ def _pod_env(spec: PodSpec, api_key: str) -> dict[str, str]:
     }
 
 
+def _apply_env_and_restart(pod_id: str, spec: PodSpec, api_key: str) -> None:
+    # RUNPOD_POD_ID can't be known until the pod exists, so it's set here rather than in
+    # `_pod_env`, and the pod is restarted to pick up the change -- env vars are baked in at
+    # container start. The RunPod API's pod-env PATCH replaces the whole env map rather than
+    # merging, so this must resend every key from `_pod_env`, not just whichever one changed.
+    # `update_pod_env` raises PodNotFoundError on a 404 exactly like `pod_action` does, so a pod
+    # deleted concurrently with this call surfaces the same signal a caller's except clause
+    # already handles, not a raw HTTP error.
+    update_pod_env(pod_id, {**_pod_env(spec, api_key), "RUNPOD_POD_ID": pod_id})
+    pod_action(pod_id, "restart")
+
+
 def _create_pod(spec: PodSpec, api_key: str) -> str:
     result = create_pod(
         name=spec.name,
@@ -68,12 +80,7 @@ def _create_pod(spec: PodSpec, api_key: str) -> str:
         network_volume_mount_path=spec.network_volume_mount_path,
     )
     pod_id = result["id"]
-    # RUNPOD_POD_ID can't be known until the pod exists, so it's set after creation and the pod
-    # is restarted to pick it up — env vars are baked in at container start. The RunPod API's
-    # pod-env PATCH replaces the whole env map rather than merging, so this must resend every
-    # key from _pod_env(), not just the new one.
-    update_pod_env(pod_id, {**_pod_env(spec, api_key), "RUNPOD_POD_ID": pod_id})
-    pod_action(pod_id, "restart")
+    _apply_env_and_restart(pod_id, spec, api_key)
     return pod_id
 
 
@@ -88,10 +95,9 @@ def start_pod(spec: PodSpec) -> str:
             # A resumed pod's env is whatever it was left with when it last stopped -- `extra_env`
             # on this call's `spec` is not applied automatically, since RunPod's `start` action
             # only starts the existing container as-is. Re-applying it here (mirroring
-            # `_create_pod`'s own PATCH-then-restart sequence) means a caller's `extra_env` always
-            # reflects what they asked for on this call, not whatever was baked in on a prior one.
-            update_pod_env(spec.pod_id, {**_pod_env(spec, api_key), "RUNPOD_POD_ID": spec.pod_id})
-            pod_action(spec.pod_id, "restart")
+            # `_create_pod`'s own sequence) means a caller's `extra_env` always reflects what they
+            # asked for on this call, not whatever was baked in on a prior one.
+            _apply_env_and_restart(spec.pod_id, spec, api_key)
             return spec.pod_id
         except PodCapacityError:
             delete_pod(spec.pod_id)

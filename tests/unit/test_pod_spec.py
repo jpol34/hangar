@@ -130,6 +130,30 @@ def test_start_pod_falls_back_to_create_when_pod_id_not_found(monkeypatch):
     assert "DELETE /v2/pods/pod-gone" not in calls
 
 
+def test_start_pod_falls_back_to_create_when_deleted_between_start_and_env_patch(monkeypatch):
+    """A pod deleted concurrently right after `start` succeeds but before its env gets re-applied
+    must fall back to creating a fresh one, exactly like a 404 on the initial `start` call does --
+    not raise, since `update_pod_env` translates a 404 into the same `PodNotFoundError`."""
+    calls = []
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        calls.append(request.method + " " + request.url.path)
+        if request.url.path == "/v2/pods/pod-vanishing/action" and request.method == "POST":
+            return httpx.Response(200, json={"id": "pod-vanishing"})
+        if request.url.path == "/v2/pods/pod-vanishing":
+            return httpx.Response(404, text="Error: pod not found")
+        return httpx.Response(200, json={"id": "pod-fresh"})
+
+    _fake_rest_client(monkeypatch, handler)
+
+    pod_id = start_pod(_spec(pod_id="pod-vanishing"))
+
+    assert pod_id == "pod-fresh"
+    assert "POST /v2/pods/pod-vanishing/action" in calls
+    assert "PATCH /v2/pods/pod-vanishing" in calls
+    assert "POST /v2/pods" in calls
+
+
 def test_pod_env_merges_device_and_extra_env(monkeypatch):
     captured = {}
 
