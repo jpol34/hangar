@@ -85,6 +85,24 @@ def test_pod_action_raises_pod_not_found_error_on_404(monkeypatch):
         pod_action("pod-gone", "start")
 
 
+def test_pod_action_returns_body_for_start_stop_restart(monkeypatch):
+    def handler(request: httpx.Request) -> httpx.Response:
+        return httpx.Response(200, json={"id": "pod-123", "desiredStatus": "RUNNING"})
+
+    _fake_rest_client(monkeypatch, handler)
+
+    assert pod_action("pod-123", "start") == {"id": "pod-123", "desiredStatus": "RUNNING"}
+
+
+def test_pod_action_returns_none_for_terminate_204(monkeypatch):
+    def handler(request: httpx.Request) -> httpx.Response:
+        return httpx.Response(204)
+
+    _fake_rest_client(monkeypatch, handler)
+
+    assert pod_action("pod-123", "terminate") is None
+
+
 def test_create_pod_sends_expected_body_and_returns_response(monkeypatch):
     captured = {}
 
