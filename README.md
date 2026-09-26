@@ -70,8 +70,8 @@ volume is never auto-deleted; use `hangar.delete_network_volume` when one is no 
 ## Idle shutdown
 
 hangar itself only provides the building blocks for detecting whether a pod is idle — deciding
-what to do about it (stopping the pod, a fixed max-runtime ceiling, etc.) is left to each
-project's own watchdog script.
+what to do about it (stopping the pod, etc.) is left to each project's own watchdog script. For a
+dumb, activity-independent runtime ceiling instead, see **Max-runtime watchdog** below.
 
 ### Heartbeat file convention
 
@@ -122,6 +122,25 @@ a fresh pod that hasn't written a heartbeat or opened an SSH session yet reads a
 treating that as idle before the pod has had a chance to signal activity would shut it down
 immediately. The grace period gives it one full threshold window to start signaling before idle
 checks take effect.
+
+## Max-runtime watchdog
+
+`hangar-watchdog --max-hours N` sleeps for `N` hours, then stops its own pod via RunPod's API —
+a last line of defense if whatever was supposed to tear the pod down (a local CLI's `finally`
+block, a caller process) never runs, e.g. because the local machine or its network connection
+died mid-run rather than the process exiting cleanly. It reads `RUNPOD_API_KEY`/`RUNPOD_POD_ID`
+from the pod's own environment, both of which `start_pod`/`create_pod` already inject into every
+pod, so no extra wiring is needed beyond starting it.
+
+Start it detached inside the pod, the same way as `hangar-run` — typically over the same SSH
+session that launches the real workload:
+
+```
+ssh pod-host 'nohup hangar-watchdog --max-hours 6 >/tmp/hangar-watchdog.log 2>&1 & disown'
+```
+
+It's independent of activity — unlike `IdleWatchdog` above, it fires on elapsed wall-clock time
+alone, regardless of whether the pod is busy.
 
 ## Development
 
