@@ -85,6 +85,13 @@ def start_pod(spec: PodSpec) -> str:
     if spec.pod_id:
         try:
             pod_action(spec.pod_id, "start")
+            # A resumed pod's env is whatever it was left with when it last stopped -- `extra_env`
+            # on this call's `spec` is not applied automatically, since RunPod's `start` action
+            # only starts the existing container as-is. Re-applying it here (mirroring
+            # `_create_pod`'s own PATCH-then-restart sequence) means a caller's `extra_env` always
+            # reflects what they asked for on this call, not whatever was baked in on a prior one.
+            update_pod_env(spec.pod_id, {**_pod_env(spec, api_key), "RUNPOD_POD_ID": spec.pod_id})
+            pod_action(spec.pod_id, "restart")
             return spec.pod_id
         except PodCapacityError:
             delete_pod(spec.pod_id)

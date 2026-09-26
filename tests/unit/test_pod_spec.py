@@ -41,15 +41,39 @@ def test_start_pod_resumes_existing_pod_id(monkeypatch):
     calls = []
 
     def handler(request: httpx.Request) -> httpx.Response:
-        calls.append((request.method, str(request.url)))
+        calls.append(request.method + " " + request.url.path)
         return httpx.Response(200, json={"id": "pod-existing"})
 
     _fake_rest_client(monkeypatch, handler)
 
-    pod_id = start_pod(_spec(pod_id="pod-existing"))
+    pod_id = start_pod(_spec(pod_id="pod-existing", extra_env={"GATEWAY_API_KEY": "gw-secret"}))
 
     assert pod_id == "pod-existing"
-    assert calls == [("POST", "https://api.runpod.io/v2/pods/pod-existing/action")]
+    # start, then re-apply this call's env (a resumed pod otherwise keeps whatever env it was
+    # last stopped with), then restart so the container picks it up.
+    assert calls == [
+        "POST /v2/pods/pod-existing/action",
+        "PATCH /v2/pods/pod-existing",
+        "POST /v2/pods/pod-existing/action",
+    ]
+
+
+def test_start_pod_resume_reapplies_extra_env(monkeypatch):
+    captured_env = {}
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        if request.method == "PATCH":
+            import json
+
+            captured_env.update(json.loads(request.content)["env"])
+        return httpx.Response(200, json={"id": "pod-existing"})
+
+    _fake_rest_client(monkeypatch, handler)
+
+    start_pod(_spec(pod_id="pod-existing", extra_env={"PUBLIC_KEY": "ssh-ed25519 fresh-key"}))
+
+    assert captured_env["PUBLIC_KEY"] == "ssh-ed25519 fresh-key"
+    assert captured_env["RUNPOD_POD_ID"] == "pod-existing"
 
 
 def test_start_pod_creates_when_no_pod_id(monkeypatch):
