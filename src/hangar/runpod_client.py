@@ -157,8 +157,14 @@ def delete_network_volume(volume_id: str) -> None:
 
 
 def update_pod_env(pod_id: str, env: dict[str, str]) -> dict:
+    """Raises PodNotFoundError if RunPod no longer has a pod by this id, matching `pod_action`'s
+    own 404 translation -- a caller resuming a pod that gets deleted between its own `start` and
+    this call needs the same signal `pod_action` would give it to fall back to creating a fresh
+    pod, not a raw HTTP error."""
     with _rest_client() as client:
         resp = client.patch(f"/pods/{pod_id}", json={"env": env})
+        if resp.status_code == 404:
+            raise PodNotFoundError(resp.text)
         resp.raise_for_status()
         return resp.json()
 

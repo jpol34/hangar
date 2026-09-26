@@ -41,15 +41,39 @@ def test_start_pod_resumes_existing_pod_id(monkeypatch):
     calls = []
 
     def handler(request: httpx.Request) -> httpx.Response:
-        calls.append((request.method, str(request.url)))
+        calls.append(request.method + " " + request.url.path)
         return httpx.Response(200, json={"id": "pod-existing"})
 
     _fake_rest_client(monkeypatch, handler)
 
-    pod_id = start_pod(_spec(pod_id="pod-existing"))
+    pod_id = start_pod(_spec(pod_id="pod-existing", extra_env={"GATEWAY_API_KEY": "gw-secret"}))
 
     assert pod_id == "pod-existing"
-    assert calls == [("POST", "https://api.runpod.io/v2/pods/pod-existing/action")]
+    # start, then re-apply this call's env (a resumed pod otherwise keeps whatever env it was
+    # last stopped with), then restart so the container picks it up.
+    assert calls == [
+        "POST /v2/pods/pod-existing/action",
+        "PATCH /v2/pods/pod-existing",
+        "POST /v2/pods/pod-existing/action",
+    ]
+
+
+def test_start_pod_resume_reapplies_extra_env(monkeypatch):
+    captured_env = {}
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        if request.method == "PATCH":
+            import json
+
+            captured_env.update(json.loads(request.content)["env"])
+        return httpx.Response(200, json={"id": "pod-existing"})
+
+    _fake_rest_client(monkeypatch, handler)
+
+    start_pod(_spec(pod_id="pod-existing", extra_env={"PUBLIC_KEY": "ssh-ed25519 fresh-key"}))
+
+    assert captured_env["PUBLIC_KEY"] == "ssh-ed25519 fresh-key"
+    assert captured_env["RUNPOD_POD_ID"] == "pod-existing"
 
 
 def test_start_pod_creates_when_no_pod_id(monkeypatch):
@@ -104,6 +128,30 @@ def test_start_pod_falls_back_to_create_when_pod_id_not_found(monkeypatch):
     assert "POST /v2/pods" in calls
     # No DELETE call: a pod RunPod already has no record of needs no cleanup.
     assert "DELETE /v2/pods/pod-gone" not in calls
+
+
+def test_start_pod_falls_back_to_create_when_deleted_between_start_and_env_patch(monkeypatch):
+    """A pod deleted concurrently right after `start` succeeds but before its env gets re-applied
+    must fall back to creating a fresh one, exactly like a 404 on the initial `start` call does --
+    not raise, since `update_pod_env` translates a 404 into the same `PodNotFoundError`."""
+    calls = []
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        calls.append(request.method + " " + request.url.path)
+        if request.url.path == "/v2/pods/pod-vanishing/action" and request.method == "POST":
+            return httpx.Response(200, json={"id": "pod-vanishing"})
+        if request.url.path == "/v2/pods/pod-vanishing":
+            return httpx.Response(404, text="Error: pod not found")
+        return httpx.Response(200, json={"id": "pod-fresh"})
+
+    _fake_rest_client(monkeypatch, handler)
+
+    pod_id = start_pod(_spec(pod_id="pod-vanishing"))
+
+    assert pod_id == "pod-fresh"
+    assert "POST /v2/pods/pod-vanishing/action" in calls
+    assert "PATCH /v2/pods/pod-vanishing" in calls
+    assert "POST /v2/pods" in calls
 
 
 def test_pod_env_merges_device_and_extra_env(monkeypatch):
