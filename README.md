@@ -36,6 +36,37 @@ pod_id = start_pod(
 `stop_pod`, `pod_status`, `pod_action`, `delete_pod`, `update_pod_env`, and `PodCapacityError`
 directly.
 
+### Network volumes
+
+A pod that needs a durable volume sets `PodSpec.data_center_id`, `network_volume_id`, and
+`network_volume_mount_path` — a volume-attached pod must land in its volume's own data center, so
+`data_center_id` is required whenever a volume is attached. `ensure_network_volume` mirrors
+`start_pod`'s resume-or-create shape: it reuses `volume_id` if it still resolves, otherwise
+creates a fresh volume.
+
+```python
+from hangar import PodSpec, ensure_network_volume, start_pod
+
+volume_id = ensure_network_volume(
+    name="my-service-data",
+    size_gb=10,
+    data_center_id="US-WA-1",
+    volume_id=existing_volume_id,  # None to always create fresh
+)
+
+pod_id = start_pod(
+    PodSpec(
+        ...,
+        data_center_id="US-WA-1",
+        network_volume_id=volume_id,
+        network_volume_mount_path="/runpod-volume",
+    )
+)
+```
+
+This is minimal, single-volume support — no resize, list, or snapshot operations. A network
+volume is never auto-deleted; use `hangar.delete_network_volume` when one is no longer needed.
+
 ## Idle shutdown
 
 hangar itself only provides the building blocks for detecting whether a pod is idle — deciding

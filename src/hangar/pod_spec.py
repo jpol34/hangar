@@ -10,8 +10,10 @@ from hangar.runpod_client import (
     PodCapacityError,
     PodNotFoundError,
     _require_api_key,
+    create_network_volume,
     create_pod,
     delete_pod,
+    get_network_volume,
     pod_action,
     update_pod_env,
 )
@@ -39,6 +41,9 @@ class PodSpec:
     pod_id: str | None = None
     extra_env: dict[str, str] = field(default_factory=dict)
     registry_id: str = ""
+    data_center_id: str | None = None
+    network_volume_id: str | None = None
+    network_volume_mount_path: str | None = None
 
 
 def _pod_env(spec: PodSpec, api_key: str) -> dict[str, str]:
@@ -58,6 +63,9 @@ def _create_pod(spec: PodSpec, api_key: str) -> str:
         ports=spec.ports,
         env=_pod_env(spec, api_key),
         registry_id=spec.registry_id,
+        data_center_id=spec.data_center_id,
+        network_volume_id=spec.network_volume_id,
+        network_volume_mount_path=spec.network_volume_mount_path,
     )
     pod_id = result["id"]
     # RUNPOD_POD_ID can't be known until the pod exists, so it's set after creation and the pod
@@ -85,3 +93,24 @@ def start_pod(spec: PodSpec) -> str:
             return _create_pod(spec, api_key)
 
     return _create_pod(spec, api_key)
+
+
+def ensure_network_volume(
+    *, name: str, size_gb: int, data_center_id: str, volume_id: str | None = None
+) -> str:
+    """Resumes `volume_id` if it still resolves *and* still lives in `data_center_id`, otherwise
+    creates a fresh network volume. Returns the volume's id. A volume's data center is immutable
+    once created, and a pod can only mount a volume in its own data center, so a stale id
+    pointing at a different data center than the caller now wants must not be silently reused --
+    that would produce a `create_pod` call whose `data_center_id` and `network_volume_id` can
+    never actually be mounted together. Requires `hangar.runpod_client.init(api_key)` to have
+    been called first."""
+    _require_api_key()
+
+    if volume_id:
+        existing = get_network_volume(volume_id)
+        if existing and existing.get("dataCenter") == data_center_id:
+            return volume_id
+
+    result = create_network_volume(name=name, size_gb=size_gb, data_center_id=data_center_id)
+    return result["id"]
