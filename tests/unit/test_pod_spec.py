@@ -2,7 +2,7 @@ import httpx
 import pytest
 
 from hangar import runpod_client
-from hangar.pod_spec import PodSpec, start_pod
+from hangar.pod_spec import PodSpec, ensure_network_volume, start_pod
 
 
 @pytest.fixture(autouse=True)
@@ -125,3 +125,80 @@ def test_pod_env_merges_device_and_extra_env(monkeypatch):
         "HANGAR_DEVICE": "cuda",
         "GATEWAY_API_KEY": "gw-secret",
     }
+
+
+def test_create_pod_forwards_data_center_and_network_volume_fields(monkeypatch):
+    captured = {}
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        if request.url.path == "/v2/pods":
+            import json
+
+            captured["body"] = json.loads(request.content)
+        return httpx.Response(200, json={"id": "pod-new"})
+
+    _fake_rest_client(monkeypatch, handler)
+
+    start_pod(
+        _spec(
+            data_center_id="US-WA-1",
+            network_volume_id="vol-123",
+            network_volume_mount_path="/runpod-volume",
+        )
+    )
+
+    assert captured["body"]["dataCenterIds"] == ["US-WA-1"]
+    assert captured["body"]["mounts"] == {
+        "network": [{"volumeId": "vol-123", "path": "/runpod-volume"}]
+    }
+
+
+def test_ensure_network_volume_reuses_existing_id_when_it_still_resolves(monkeypatch):
+    calls = []
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        calls.append(request.method + " " + request.url.path)
+        return httpx.Response(200, json={"id": "vol-existing", "size": 10})
+
+    _fake_rest_client(monkeypatch, handler)
+
+    volume_id = ensure_network_volume(
+        name="jlt-gpu-run", size_gb=10, data_center_id="US-WA-1", volume_id="vol-existing"
+    )
+
+    assert volume_id == "vol-existing"
+    assert calls == ["GET /v2/network-volumes/vol-existing"]
+
+
+def test_ensure_network_volume_creates_fresh_when_no_id_given(monkeypatch):
+    calls = []
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        calls.append(request.method + " " + request.url.path)
+        return httpx.Response(200, json={"id": "vol-fresh"})
+
+    _fake_rest_client(monkeypatch, handler)
+
+    volume_id = ensure_network_volume(name="jlt-gpu-run", size_gb=10, data_center_id="US-WA-1")
+
+    assert volume_id == "vol-fresh"
+    assert calls == ["POST /v2/network-volumes"]
+
+
+def test_ensure_network_volume_creates_fresh_when_existing_id_gone(monkeypatch):
+    calls = []
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        calls.append(request.method + " " + request.url.path)
+        if request.url.path == "/v2/network-volumes/vol-gone":
+            return httpx.Response(404)
+        return httpx.Response(200, json={"id": "vol-fresh"})
+
+    _fake_rest_client(monkeypatch, handler)
+
+    volume_id = ensure_network_volume(
+        name="jlt-gpu-run", size_gb=10, data_center_id="US-WA-1", volume_id="vol-gone"
+    )
+
+    assert volume_id == "vol-fresh"
+    assert calls == ["GET /v2/network-volumes/vol-gone", "POST /v2/network-volumes"]

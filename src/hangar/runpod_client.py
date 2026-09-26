@@ -1,7 +1,8 @@
 """RunPod API client: GraphQL for start/stop/status of an existing pod (the original, minimal
-surface), plus REST v2 for creating/updating/deleting pods — needed because a stopped pod is
-pinned to the host it last ran on, and that host sometimes has no free GPU capacity for a
-`start`, with no fallback but to terminate and create a fresh pod on a different host.
+surface), plus REST v2 for creating/updating/deleting pods and network volumes — needed because a
+stopped pod is pinned to the host it last ran on, and that host sometimes has no free GPU
+capacity for a `start`, with no fallback but to terminate and create a fresh pod on a different
+host.
 
 Call `init(api_key)` once before using any function here.
 """
@@ -95,24 +96,62 @@ def create_pod(
     ports: list[str],
     env: dict[str, str],
     registry_id: str = "",
+    data_center_id: str | None = None,
+    network_volume_id: str | None = None,
+    network_volume_mount_path: str | None = None,
 ) -> dict:
+    if network_volume_id and not network_volume_mount_path:
+        raise ValueError("network_volume_mount_path is required when network_volume_id is set")
+
+    body = {
+        "name": name,
+        "image": image,
+        "cloud": "SECURE",
+        "gpu": {"id": gpu_id, "count": 1},
+        "disk": disk_gb,
+        "ports": ports,
+        "startSsh": True,
+        "env": env,
+        "registry": registry_id or None,
+    }
+    if data_center_id:
+        body["dataCenterIds"] = [data_center_id]
+    if network_volume_id:
+        body["mounts"] = {
+            "network": [{"volumeId": network_volume_id, "path": network_volume_mount_path}]
+        }
+
+    with _rest_client() as client:
+        resp = client.post("/pods", json=body)
+        resp.raise_for_status()
+        return resp.json()
+
+
+def create_network_volume(*, name: str, size_gb: int, data_center_id: str) -> dict:
     with _rest_client() as client:
         resp = client.post(
-            "/pods",
-            json={
-                "name": name,
-                "image": image,
-                "cloud": "SECURE",
-                "gpu": {"id": gpu_id, "count": 1},
-                "disk": disk_gb,
-                "ports": ports,
-                "startSsh": True,
-                "env": env,
-                "registry": registry_id or None,
-            },
+            "/network-volumes",
+            json={"name": name, "size": size_gb, "dataCenterId": data_center_id},
         )
         resp.raise_for_status()
         return resp.json()
+
+
+def get_network_volume(volume_id: str) -> dict | None:
+    """Returns the network volume's REST v2 representation, or None if it no longer exists."""
+    with _rest_client() as client:
+        resp = client.get(f"/network-volumes/{volume_id}")
+        if resp.status_code == 404:
+            return None
+        resp.raise_for_status()
+        return resp.json()
+
+
+def delete_network_volume(volume_id: str) -> None:
+    with _rest_client() as client:
+        resp = client.delete(f"/network-volumes/{volume_id}")
+        if resp.status_code not in (200, 204, 404):
+            resp.raise_for_status()
 
 
 def update_pod_env(pod_id: str, env: dict[str, str]) -> dict:
