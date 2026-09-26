@@ -13,6 +13,7 @@ dependencies = [
 
 [project.scripts]
 hangar-run = "hangar.run:main"
+hangar-watchdog = "hangar.watchdog:main"
 
 [project.optional-dependencies]
 dev = [
