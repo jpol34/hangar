@@ -98,13 +98,19 @@ def start_pod(spec: PodSpec) -> str:
 def ensure_network_volume(
     *, name: str, size_gb: int, data_center_id: str, volume_id: str | None = None
 ) -> str:
-    """Resumes `volume_id` if it still resolves, otherwise creates a fresh network volume.
-    Returns the volume's id. Requires `hangar.runpod_client.init(api_key)` to have been called
-    first."""
+    """Resumes `volume_id` if it still resolves *and* still lives in `data_center_id`, otherwise
+    creates a fresh network volume. Returns the volume's id. A volume's data center is immutable
+    once created, and a pod can only mount a volume in its own data center, so a stale id
+    pointing at a different data center than the caller now wants must not be silently reused --
+    that would produce a `create_pod` call whose `data_center_id` and `network_volume_id` can
+    never actually be mounted together. Requires `hangar.runpod_client.init(api_key)` to have
+    been called first."""
     _require_api_key()
 
-    if volume_id and get_network_volume(volume_id):
-        return volume_id
+    if volume_id:
+        existing = get_network_volume(volume_id)
+        if existing and existing.get("dataCenter") == data_center_id:
+            return volume_id
 
     result = create_network_volume(name=name, size_gb=size_gb, data_center_id=data_center_id)
     return result["id"]

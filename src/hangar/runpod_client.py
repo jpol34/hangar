@@ -102,6 +102,8 @@ def create_pod(
 ) -> dict:
     if network_volume_id and not network_volume_mount_path:
         raise ValueError("network_volume_mount_path is required when network_volume_id is set")
+    if network_volume_id and not data_center_id:
+        raise ValueError("data_center_id is required when network_volume_id is set")
 
     body = {
         "name": name,
@@ -131,7 +133,7 @@ def create_network_volume(*, name: str, size_gb: int, data_center_id: str) -> di
     with _rest_client() as client:
         resp = client.post(
             "/network-volumes",
-            json={"name": name, "size": size_gb, "dataCenterId": data_center_id},
+            json={"name": name, "size": size_gb, "dataCenter": data_center_id},
         )
         resp.raise_for_status()
         return resp.json()

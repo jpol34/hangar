@@ -239,6 +239,7 @@ def test_create_pod_sets_network_mount_when_volume_given(monkeypatch):
         disk_gb=20,
         ports=["22/tcp"],
         env={},
+        data_center_id="US-WA-1",
         network_volume_id="vol-123",
         network_volume_mount_path="/runpod-volume",
     )
@@ -257,7 +258,22 @@ def test_create_pod_raises_when_volume_given_with_no_mount_path():
             disk_gb=20,
             ports=["22/tcp"],
             env={},
+            data_center_id="US-WA-1",
             network_volume_id="vol-123",
+        )
+
+
+def test_create_pod_raises_when_volume_given_with_no_data_center_id():
+    with pytest.raises(ValueError):
+        create_pod(
+            name="hangar-test",
+            image="public/image:latest",
+            gpu_id="NVIDIA GeForce RTX 4090",
+            disk_gb=20,
+            ports=["22/tcp"],
+            env={},
+            network_volume_id="vol-123",
+            network_volume_mount_path="/runpod-volume",
         )
 
 
@@ -273,7 +289,7 @@ def test_create_network_volume_sends_expected_body(monkeypatch):
     result = create_network_volume(name="jlt-gpu-run", size_gb=10, data_center_id="US-WA-1")
 
     assert result == {"id": "vol-new"}
-    assert captured["body"] == {"name": "jlt-gpu-run", "size": 10, "dataCenterId": "US-WA-1"}
+    assert captured["body"] == {"name": "jlt-gpu-run", "size": 10, "dataCenter": "US-WA-1"}
 
 
 def test_get_network_volume_returns_none_on_404(monkeypatch):

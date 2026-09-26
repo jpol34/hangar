@@ -158,7 +158,7 @@ def test_ensure_network_volume_reuses_existing_id_when_it_still_resolves(monkeyp
 
     def handler(request: httpx.Request) -> httpx.Response:
         calls.append(request.method + " " + request.url.path)
-        return httpx.Response(200, json={"id": "vol-existing", "size": 10})
+        return httpx.Response(200, json={"id": "vol-existing", "size": 10, "dataCenter": "US-WA-1"})
 
     _fake_rest_client(monkeypatch, handler)
 
@@ -168,6 +168,25 @@ def test_ensure_network_volume_reuses_existing_id_when_it_still_resolves(monkeyp
 
     assert volume_id == "vol-existing"
     assert calls == ["GET /v2/network-volumes/vol-existing"]
+
+
+def test_ensure_network_volume_creates_fresh_when_existing_id_in_different_data_center(monkeypatch):
+    calls = []
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        calls.append(request.method + " " + request.url.path)
+        if request.url.path == "/v2/network-volumes/vol-other-dc":
+            return httpx.Response(200, json={"id": "vol-other-dc", "dataCenter": "US-CA-1"})
+        return httpx.Response(200, json={"id": "vol-fresh"})
+
+    _fake_rest_client(monkeypatch, handler)
+
+    volume_id = ensure_network_volume(
+        name="jlt-gpu-run", size_gb=10, data_center_id="US-WA-1", volume_id="vol-other-dc"
+    )
+
+    assert volume_id == "vol-fresh"
+    assert calls == ["GET /v2/network-volumes/vol-other-dc", "POST /v2/network-volumes"]
 
 
 def test_ensure_network_volume_creates_fresh_when_no_id_given(monkeypatch):
