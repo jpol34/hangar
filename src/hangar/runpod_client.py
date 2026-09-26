@@ -163,10 +163,12 @@ def update_pod_env(pod_id: str, env: dict[str, str]) -> dict:
         return resp.json()
 
 
-def pod_action(pod_id: str, action: str) -> dict:
+def pod_action(pod_id: str, action: str) -> dict | None:
     """action: 'start' | 'stop' | 'restart' | 'terminate'. Raises PodCapacityError on the
     known "not enough free GPUs on the host machine" failure mode for a `start`, or
-    PodNotFoundError if RunPod no longer has a pod by this id."""
+    PodNotFoundError if RunPod no longer has a pod by this id. Returns the updated pod for
+    'start'/'stop'/'restart' (200 with a body); returns None for 'terminate' (204, no body --
+    calling .json() on an empty body raises JSONDecodeError)."""
     with _rest_client() as client:
         resp = client.post(f"/pods/{pod_id}/action", json={"action": action})
         if resp.status_code == 400 and "not enough free gpus" in resp.text.lower():
@@ -174,6 +176,8 @@ def pod_action(pod_id: str, action: str) -> dict:
         if resp.status_code == 404:
             raise PodNotFoundError(resp.text)
         resp.raise_for_status()
+        if resp.status_code == 204:
+            return None
         return resp.json()
 
 
